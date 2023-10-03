@@ -1,0 +1,6 @@
+numpy
+scikit-learn
+pandas
+kaggle
+git+https://github.com/gbolmier/funk-svd
+scikit-surprise
