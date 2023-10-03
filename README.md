@@ -4,6 +4,8 @@
 ## Instal dependencies
 ```
 pip install numpy scikit-learn pandas kaggle
+pip install git+https://github.com/gbolmier/funk-svd
+pip install scikit-surprise
 ```
 ## Để tải dữ liệu, thực hiện theo các bước sau đây:
 Try cập https://www.kaggle.com/settings và đăng nhập, ở mục API ấn vào nút Create New Token, sau đó hệ thống sẽ tải về file kaggle.json
