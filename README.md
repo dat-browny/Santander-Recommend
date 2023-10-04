@@ -18,9 +18,10 @@ kaggle competitions download -c santander-product-recommendation
 ```
 Unzip các file
 ```
-unzip santander-production-recommendation.zip
+unzip santander-product-recommendation.zip
 unzip test_ver2.csv.zip
 unzip train_ver2.csv.zip
+rm *.zip
 ```
 
 ## Submit CLI
