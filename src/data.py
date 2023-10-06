@@ -60,8 +60,9 @@ def transform_value(df):
 def extract_information(df, time_stamp='2016-05-28', test=False):
     if not test:
         df = df[df['fecha_dato'] == time_stamp]
+        df = df[df['age']!=' NA']
     df.fillna(method='ffill', inplace=True)
-    df = df[df['age']!=' NA']
+
     df['antiguedad'] = df['antiguedad'].apply(lambda x: pd.to_numeric(str(x).replace('[^\d.-]', ''), errors='coerce'))
     df = transform_value(df)
     
@@ -69,12 +70,13 @@ def extract_information(df, time_stamp='2016-05-28', test=False):
     label_per_user = {}
     for _, rcd in tqdm(df.iterrows(), total=len(df)):
         user_id = rcd['ncodpers']
-        user_label = rcd[label_col].tolist()
         user_information = rcd[categorical_col + interval_col].tolist()
         personal_information_encoded[user_id] = user_information
         if test:
             continue
+        user_label = rcd[label_col].tolist()
         label_per_user[user_id] = user_label
+        
     return personal_information_encoded, label_per_user
 
 def get_history_purchase(df, user_id, time_stamp='2016-05-28'):
@@ -94,7 +96,7 @@ def get_history_purchase(df, user_id, time_stamp='2016-05-28'):
         item_buy_per_user[ncodpers].extend(items_bought)
     return item_buy_per_user
 
-def get_dataset(user_feature, item_bought, label):
+def get_dataset(user_feature, item_bought, label=None):
     X = []
     y = []
     idx = []
@@ -141,7 +143,7 @@ if __name__ == '__main__':
     personal_in4, label = extract_information(df)
     user_id = list(personal_in4.keys())
     item_last_buy = get_history_purchase(df, user_id)
-    X, y, _ = get_dataset(personal_in4, item_last_buy, label)
+    X, y, _ = get_dataset(personal_in4, item_last_buy, label=label)
 
     os.mkdir(args.output_dir, exist_ok=True)
     np.save(os.path.join(args.output_dir,'X_train.npy'), X)
@@ -149,11 +151,14 @@ if __name__ == '__main__':
     
     print('Preprocess & Dump testset...')
     test_personal_information, _ = extract_information(test_df, test=True)
+    
     user_id_test = list(test_personal_information.keys())
-    test_item_buy = get_history_purchase(test_df, user_id_test, time_stamp='2016-06-28')
-    X_test, _, X_idx = get_dataset(test_personal_information, user_id_test)
-    assert len(X_test) == len(test_df)
-
+    
+    test_item_buy = get_history_purchase(df, user_id_test, time_stamp='2016-06-28')
+    
+    X_test, _, X_idx = get_dataset(test_personal_information, test_item_buy)
+    
     np.save(os.path.join(args.output_dir,'X_test.npy'), X_test)
     np.save(os.path.join(args.output_dir,'test_idx.npy'), X_idx)
     
+    assert len(X_test) == len(test_df)

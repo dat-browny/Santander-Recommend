@@ -9,6 +9,7 @@ from torch.utils.data import Dataset, DataLoader
 import math
 from torch import optim, nn, utils, Tensor
 import lightning.pytorch as pl
+from sklearn.metrics import classification_report
 
 product_list = ['ind_ahor_fin_ult1', 'ind_aval_fin_ult1', 'ind_cco_fin_ult1',
        'ind_cder_fin_ult1', 'ind_cno_fin_ult1', 'ind_ctju_fin_ult1',
@@ -29,16 +30,13 @@ def get_submit_file(idx, output):
         f.write('\n')
         for id, item in enumerate(output):
             item_added = [mapping_product[i] for i, label in enumerate(item) if label == 1]
-            f.write(f"""{idx[id]}, {' '.join(item_added)}""")
+            f.write(f"""{idx[id]}, {' '.join(item_added)}\n""")
         f.close()
 
 class SantanderDataset(Dataset):
     def __init__(self, X, y=None):
         self.trainset = torch.tensor(X)
-        if y is not None:
-            self.label = torch.tensor(y)
-        else:
-            self.label = None
+        self.label = torch.tensor(y)
 
     def __len__(self):
         return len(self.trainset)
@@ -46,10 +44,21 @@ class SantanderDataset(Dataset):
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
-        if self.label is not None:
-            return self.trainset[idx], self.label[idx].float()
-        return self.trainset[idx], None
-           
+        return self.trainset[idx], self.label[idx].float()
+    
+class SantanderTestset(Dataset):
+    def __init__(self, X):
+        self.trainset = torch.tensor(X)
+        self.y = torch.zeros(self.trainset.size(0))
+        
+    def __len__(self):
+        return len(self.trainset)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        return self.trainset[idx], self.y[idx]
+    
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
         super().__init__()
@@ -106,7 +115,8 @@ class BST(pl.LightningModule):
         self.mae = nn.L1Loss()
         self.validation_step_outputs = []
         self.test = []
-        
+        self.eval_result, self.eval_label = [], []
+        self.save_hyperparameters()
     def forward(self, batch):
         X, y = batch        
         other_feature, item_feature = X[:,:-20], X[:,-20:]
@@ -143,12 +153,18 @@ class BST(pl.LightningModule):
         out, target_movie_rating = self(batch)
         loss = self.bce(out, target_movie_rating)
         
+        batch_result = out.tolist()
+        
         mae = self.mae(out, target_movie_rating)
         mse = self.mse(out, target_movie_rating)
         rmse = torch.sqrt(mse)
         loss_dict = {"val_loss": loss, "mae": mae.detach(), "rmse": rmse.detach()}
         
         self.validation_step_outputs.append(loss_dict)
+        
+        self.eval_label.extend(target_movie_rating.cpu())
+        self.eval_result.extend([[1 if i>0.5 else 0 for i in j] for j in batch_result])
+
         return loss_dict
 
     def on_validation_epoch_end(self):
@@ -165,26 +181,32 @@ class BST(pl.LightningModule):
         self.log("val/mae", avg_mae)
         self.log("val/rmse", avg_rmse)
         self.validation_step_outputs.clear()
-
+        print(classification_report(self.eval_label, self.eval_result))
+        self.eval_label.clear()
+        self.eval_result.clear()
+        
     def test_step(self, batch, batch_idx):
         out, _ = self(batch)
-        self.test.append([1 if i>0.5 else 0 for i in out[0].tolist()])
+        batch_result = out.tolist()  ###size (batch_size, result)
+        self.test.extend([[1 if i>0.5 else 0 for i in j] for j in batch_result])
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=5e-5)
     
 if __name__ == "__main__": 
-    X, y = np.load('X_train.npy'), np.load('y_train.npy')
-    X_test, X_idx = np.load('X_test.npy'), np.load('label.npy')
+    X, y = np.load('data/X_train.npy'), np.load('data/y_train.npy')
+    X_test, X_idx = np.load('data/X_test.npy'), np.load('data/test_idx.npy')
+    
     X_array = np.array(X)
+    
     num_embedding = [max(np.unique(X_array[:,i]))+1 for i in range(X_array.shape[1]-20)]
 
     dataset = SantanderDataset(X, y)
 
     generator = torch.Generator().manual_seed(42)
     train, val = torch.utils.data.random_split(dataset, [0.8, 0.2], generator=generator)
-    train_loader = DataLoader(train, batch_size=64, shuffle=True)
-    val_loader = DataLoader(val, batch_size=64, shuffle=True)
+    train_loader = DataLoader(train, batch_size=512, shuffle=True)
+    val_loader = DataLoader(val, batch_size=512, shuffle=True)
 
     bst = BST(num_embedding=num_embedding, num_feature_past=20)
 
@@ -192,14 +214,24 @@ if __name__ == "__main__":
                                                                                 mode='min',
                                                                                 every_n_epochs=1,
                                                                                 auto_insert_metric_name=False,
-                                                                                verbose=True)
-    trainer = pl.Trainer(limit_train_batches=1000, 
-                         limit_val_batches=100, 
-                         max_epochs=2, 
+                                                                                verbose=True,
+                                                                                save_top_k=1)
+    trainer = pl.Trainer( 
+                         max_epochs=5,
+                         callbacks = [callbacks,]
                         )
     trainer.fit(model=bst, train_dataloaders=train_loader, val_dataloaders=val_loader)
     trainer.save_checkpoint("example.ckpt")
 
     bst = BST(num_embedding=num_embedding, num_feature_past=20)
-    bst = bst.load_from_checkpoint('model_ckpt/1-100.ckpt')
     
+    for file in os.listdir('model_ckpt/'):
+        if file.endswith('.ckpt'):
+            break
+            
+    bst = bst.load_from_checkpoint('model_ckpt/'+ file)
+    
+    test_set = DataLoader(SantanderTestset(X_test), batch_size=256, shuffle=False)
+    trainer.test(bst, test_set)
+
+    get_submit_file(X_idx, bst.test)
