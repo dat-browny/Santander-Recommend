@@ -220,8 +220,9 @@ if __name__ == "__main__":
                          max_epochs=5,
                          callbacks = [callbacks,]
                         )
-    trainer.fit(model=bst, train_dataloaders=train_loader, val_dataloaders=val_loader)
-    trainer.save_checkpoint("example.ckpt")
+    
+    #Nếu infer từ checkpoints thì comment dòng .fit nha
+    # trainer.fit(model=bst, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
     bst = BST(num_embedding=num_embedding, num_feature_past=20)
     
@@ -229,7 +230,7 @@ if __name__ == "__main__":
         if file.endswith('.ckpt'):
             break
             
-    bst = bst.load_from_checkpoint('model_ckpt/'+ file)
+    bst = bst.load_from_checkpoint('model_ckpt/'+ '4-7245.ckpt') #, map_location=torch.device('cpu')
     
     test_set = DataLoader(SantanderTestset(X_test), batch_size=256, shuffle=False)
     trainer.test(bst, test_set)
